@@ -23,9 +23,9 @@ class CafeApp {
 
     private final NonCoffee[] nonCoffees = {
             new NonCoffee(1, "오렌지", 10, 4000, 2, true),
-            new NonCoffee(4, "수박",    5, 5500, 2, false),
+            new NonCoffee(2, "수박",    5, 5500, 2, false),
             new NonCoffee(3, "딸기",    8, 5000, 3, false),
-            new NonCoffee(2, "유자",   10, 4500, 3, true),
+            new NonCoffee(4, "유자",   10, 4500, 3, true),
             new NonCoffee(5, "레몬",   10, 4000, 3, true)
     };
 
@@ -105,11 +105,15 @@ class CafeApp {
 
         while (true) {
             try {
-                System.out.print("온도 선택 (1. 핫 / 2. 아이스): ");
-                int temperature = scanner.nextInt();
-
                 System.out.print("에이드 여부 (true/false): ");
                 boolean isAde = scanner.nextBoolean();
+
+                if (isAde) {
+                    System.out.println("에이드는 핫 음료가 불가능합니다.");
+                }
+
+                System.out.print("온도 선택 (1. 핫 / 2. 아이스): ");
+                int temperature = scanner.nextInt();
 
                 orderNonCoffee.order(temperature, isAde);
                 break;

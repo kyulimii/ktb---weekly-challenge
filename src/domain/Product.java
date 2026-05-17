@@ -17,7 +17,7 @@ public abstract class Product {
     public String getName() { return name; }
 
     public void displayInfo() {
-        System.out.print("메뉴 번호: " + id + ", 이름: " + name + ", 가격: " + price);
+        System.out.print("메뉴 번호: " + id + ", 이름: " + name + ", 가격: " + price + "원, ");
     }
 
     public boolean isInStock() {

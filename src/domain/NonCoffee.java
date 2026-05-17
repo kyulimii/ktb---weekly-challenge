@@ -20,11 +20,15 @@ public class NonCoffee extends Drink {
         if (isAde && !isAdeAvailable()) {
             throw new RuntimeException("에이드 선택이 불가합니다.");
         }
-        decreaseCount();
+
+        decreaseCount(); // super.order()에서 재고 확인하기 때문에 생략
+
         if (isAde) {
             System.out.println(getName() + " 에이드 주문 완료");
-        } else {
+        } else if (temperature == 2) {
             System.out.println(getName() + " 주스 주문 완료");
+        } else {
+            System.out.println(getName() + " 차 주문 완료");
         }
     }
 }
