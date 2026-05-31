@@ -1,0 +1,8 @@
+spring:
+  profiles:
+    active: local
+
+jwt:
+  secret: ${jwt.secret}
+  access-token-exp-seconds: ${jwt.access-token-exp-seconds}
+  refresh-token-exp-seconds: ${jwt.refresh-token-exp-seconds}
