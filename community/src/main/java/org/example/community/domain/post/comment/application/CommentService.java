@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.example.community.domain.post.Post;
+import org.example.community.domain.post.postStatus.PostStatus;
+import org.example.community.domain.post.postStatus.repository.PostStatusRepository;
 import org.example.community.global.CursorInfo;
 import org.example.community.domain.post.comment.Comment;
 import org.example.community.domain.post.comment.api.dto.CommentDetailResponse;
@@ -17,28 +19,35 @@ import org.example.community.domain.user.repository.UserRepository;
 import org.example.community.global.exception.CustomException;
 import org.example.community.global.exception.ErrorCode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class CommentService {
 
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
     private final UserRepository userRepository;
+    private final PostStatusRepository postStatusRepository;
 
     // 댓글 작성
+    @Transactional
     public void createComment(Long userId, Long postId, CommentRequestDto commentRequestDto) {
+        User user = findUserById(userId);
+        Post post = findPostById(postId);
+        PostStatus postStatus = findPostStatusByPostId(postId);
+
         Comment comment = Comment.builder()
                 .content(commentRequestDto.getContent())
-                .userId(userId)
-                .postId(postId)
+                .user(user)
+                .post(post)
                 .build();
+
         commentRepository.save(comment);
+        postStatus.increaseCommentCount();
 
-        Post post = findPostById(postId);
-        post.increaseCommentCount();
-
-        postRepository.save(post);
+        postStatusRepository.save(postStatus);
     }
 
     // 댓글 조회
@@ -53,7 +62,8 @@ public class CommentService {
             default -> throw new CustomException(ErrorCode.INVALID_SORT);
         };
 
-        List<Comment> comments = commentRepository.findByPostId(postId)
+        // fetch join으로 변경 — User 별도 조회 없음
+        List<Comment> comments = commentRepository.findByPostIdWithUser(postId)
                 .stream()
                 .sorted(comparator)
                 .filter(comment -> isAfterCursor(comment, cursorInfo, sort))
@@ -64,18 +74,20 @@ public class CommentService {
         List<Comment> result = hasNext ? comments.subList(0, limit) : comments;
 
         String nextCursor = hasNext
-                ? CursorInfo.encode(result.get(result.size() - 1).getCreatedAt(), result.get(result.size() - 1).getId())
+                ? CursorInfo.encode(
+                result.get(result.size() - 1).getCreatedAt(),
+                result.get(result.size() - 1).getId())
                 : null;
 
         return CommentPageResponse.builder()
                 .comments(result.stream()
-                        .map(comment -> {
-                            // userId로 User 조회 후 nickname 전달 - DB 연결 시 성능 문제 발생 가능
-                            String nickname = userRepository.findById(comment.getUserId())
-                                    .map(User::getNickname)
-                                    .orElse("탈퇴한 사용자");
-                            return CommentDetailResponse.from(comment, nickname);
-                        })
+                        .map(comment -> CommentDetailResponse.from(
+                                comment,
+                                // comment.getUser()가 이미 로딩된 상태 — 추가 쿼리 없음
+                                comment.getUser() != null
+                                        ? comment.getUser().getNickname()
+                                        : "탈퇴한 사용자"
+                        ))
                         .toList())
                 .nextCursor(nextCursor)
                 .hasNext(hasNext)
@@ -83,6 +95,7 @@ public class CommentService {
     }
 
     // 댓글 수정
+    @Transactional
     public void updateComment(Long userId, Long postId, Long commentId, CommentRequestDto commentRequestDto) {
         Comment comment = findAndValidate(userId, postId, commentId);
 
@@ -91,12 +104,13 @@ public class CommentService {
     }
 
     // 댓글 삭제
+    @Transactional
     public void deleteComment(Long userId, Long postId, Long commentId) {
         findAndValidate(userId, postId, commentId);
-        Post post = findPostById(postId);
+        PostStatus postStatus = findPostStatusByPostId(postId);
         commentRepository.deleteById(commentId);
-        post.decreaseCommentCount();
-        postRepository.save(post);
+        postStatus.decreaseCommentCount();
+        postStatusRepository.save(postStatus);
     }
 
     // 댓글 조회 + 검증
@@ -104,11 +118,11 @@ public class CommentService {
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new CustomException(ErrorCode.NOT_FOUND_COMMENT));
 
-        if (!Objects.equals(comment.getPostId(), postId)) {
+        if (!Objects.equals(comment.getPost().getId(), postId)) {
             throw new CustomException(ErrorCode.NOT_FOUND_COMMENT);
         }
 
-        if (!Objects.equals(comment.getUserId(), userId)) {
+        if (!Objects.equals(comment.getUser().getId(), userId)) {
             throw new CustomException(ErrorCode.FORBIDDEN);
         }
 
@@ -136,4 +150,15 @@ public class CommentService {
             default -> throw new CustomException(ErrorCode.INVALID_SORT);
         };
     }
+
+    private User findUserById(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.NOT_FOUND_USER));
+    }
+
+    private PostStatus findPostStatusByPostId(Long postId) {
+        return postStatusRepository.findPostStatusByPostId(postId)
+                .orElseThrow(() -> new CustomException(ErrorCode.NOT_FOUND_POST));
+    }
+
 }

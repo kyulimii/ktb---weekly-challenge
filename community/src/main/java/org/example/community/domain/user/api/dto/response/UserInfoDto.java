@@ -10,7 +10,7 @@ public class UserInfoDto {
     private Long id;
     private String email;
     private String nickname;
-    private byte[] profileImage;
+    private String profileImage;
 
     public static UserInfoDto from(User user) {
         return new UserInfoDto(

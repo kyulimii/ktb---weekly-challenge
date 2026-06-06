@@ -1,17 +1,8 @@
 package org.example.community.domain.post.repository;
 
-import java.util.List;
-import java.util.Optional;
 import org.example.community.domain.post.Post;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface PostRepository {
-    <S extends Post> S save(S entity);
-
-    Optional<Post> findById(Long postId);
-
-    List<Post> findAll();
-
-    void deleteById(Long postId);
-
+public interface PostRepository extends JpaRepository<Post, Long> {
     void deleteByUserId(Long loginUserId);
 }

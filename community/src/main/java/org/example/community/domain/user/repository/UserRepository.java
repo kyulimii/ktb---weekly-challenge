@@ -2,17 +2,10 @@ package org.example.community.domain.user.repository;
 
 import java.util.Optional;
 import org.example.community.domain.user.User;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface UserRepository {
-    <S extends User> S save(S entity);
-
-    Optional<User> findById(Long id);
-
-    void deleteById(Long id);
-
+public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(String email);
-
     boolean existsByNickname(String nickname);
-
     Optional<User> findByEmail(String email);
 }

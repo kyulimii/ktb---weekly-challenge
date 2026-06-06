@@ -1,45 +1,51 @@
 package org.example.community.domain.user;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.example.community.global.base.BaseEntity;
 
+@Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseEntity {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "user_id", nullable = false)
     private Long id;
+
+    @Column(name = "email", nullable = false)
     private String email;
+
+    @Column(name = "password", nullable = false)
     private String password;
+
+    @Column(name = "nickname", nullable = false)
     private String nickname;
-    private byte[] profileImage;
+
+    @Column(name = "profile_image", nullable = false)
+    private String profileImage;
 
     @Builder
-    private User(String email, String password, String nickname, byte[] profileImage) {
+    private User(String email, String password, String nickname, String profileImage) {
         this.email = email;
         this.password = password;
         this.nickname = nickname;
         this.profileImage = profileImage;
     }
 
-    // setter 사용을 지양하기 위한 id 할당 전용 메서드
-    public void assignId(Long id) {
-        if (this.id != null) {
-            throw new IllegalStateException("ID는 한 번만 할당 가능합니다.");
-        }
-        this.id = id;
-    }
-
-    public void updateUserInfo(String nickname, byte[] image) {
+    public void updateUserInfo(String nickname, String image) {
         this.nickname = nickname;
         this.profileImage = image;
-        this.onUpdate();
     }
 
     public void updatePassword(String password) {
         this.password = password;
-        this.onUpdate();
     }
 
     public boolean matchPassword(String password) {

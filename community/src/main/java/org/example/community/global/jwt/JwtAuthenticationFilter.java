@@ -1,5 +1,6 @@
 package org.example.community.global.jwt;
 
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -49,7 +50,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull HttpServletRequest request,
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain
-    ) throws ServletException, IOException {
+    ) throws IOException, ServletException {
 
         String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
 
@@ -62,18 +63,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             // 토큰 서명 + 만료 검증
-            jwtProvider.parseToken(token);
+            // parseToken 1번만 호출 — Claims 재사용
+            Claims claims = jwtProvider.parseToken(token);
 
             // access 토큰인지 확인
-            if (!jwtProvider.isAccessToken(token)) {
+            // claims에서 직접 타입 확인 — isAccessToken() 호출 제거
+            if (!"access".equals(claims.get("typ", String.class))) {
                 throw new IllegalArgumentException("Not access token");
             }
 
             // 사용자 정보 저장
-            Long userId = jwtProvider.getUserId(token);
+            // claims에서 직접 userId 추출 — getUserId() 호출 제거
+            Long userId = Long.valueOf(claims.getSubject());
             request.setAttribute("userId", userId);
             filterChain.doFilter(request, response);
-
         } catch (Exception exception) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         }

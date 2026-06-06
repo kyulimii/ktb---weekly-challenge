@@ -1,5 +1,6 @@
 package org.example.community.domain.auth.application;
 
+import io.jsonwebtoken.Claims;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.example.community.domain.auth.api.dto.response.LoginResponse;
@@ -14,6 +15,7 @@ import org.example.community.domain.auth.RefreshToken;
 import org.example.community.domain.auth.repository.RefreshTokenRepository;
 import org.example.community.global.jwt.TokenInfo;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +27,7 @@ public class AuthService {
     private final JwtProperties jwtProperties;
 
     // 로그인
+    @Transactional
     public LoginResult login(String email, String password) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new CustomException(ErrorCode.NOT_FOUND_USER));
@@ -40,7 +43,6 @@ public class AuthService {
         );
 
         String refreshToken = jwtProvider.createRefreshToken(user.getId());
-        refreshTokenRepository.deleteByUserId(user.getId());
         refreshTokenRepository.save(
                 RefreshToken.builder()
                         .token(refreshToken)
@@ -59,6 +61,7 @@ public class AuthService {
         );
     }
 
+    @Transactional
     public void logout(String refreshToken) {
         Long userId;
         try {
@@ -74,15 +77,18 @@ public class AuthService {
         refreshTokenRepository.deleteByUserId(userId);
     }
 
+    @Transactional
     public TokenInfo refresh(String refreshToken) {
         // 1. JWT 서명 + 만료 검증
-        jwtProvider.parseToken(refreshToken);
+        Claims claims = jwtProvider.parseToken(refreshToken);
 
         // 2. refresh 타입 확인
-        jwtProvider.validateTokenType(refreshToken, "refresh");
+        if (!"refresh".equals(claims.get("typ", String.class))) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED);
+        }
 
         // 3. userId 추출
-        Long userId = jwtProvider.getUserId(refreshToken);
+        Long userId = Long.valueOf(claims.getSubject());
 
         // 4. 저장된 RefreshToken 조회
         RefreshToken stored = refreshTokenRepository.findByUserId(userId)

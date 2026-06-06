@@ -4,44 +4,65 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
+import org.example.community.domain.image.application.FileService;
 import org.example.community.domain.post.Post;
 import org.example.community.domain.post.api.dto.request.PostRequestDto;
 import org.example.community.domain.post.api.dto.response.PostDetailResponse;
 import org.example.community.domain.post.api.dto.response.PostListResponse;
 import org.example.community.domain.post.api.dto.response.PostPageResponse;
 import org.example.community.domain.post.comment.repository.CommentRepository;
-import org.example.community.domain.post.repository.LikeRepository;
+import org.example.community.domain.post.postLike.PostLike;
+import org.example.community.domain.post.postStatus.PostStatus;
+import org.example.community.domain.post.postStatus.ViewCountBuffer;
+import org.example.community.domain.post.postStatus.repository.PostStatusRepository;
+import org.example.community.domain.post.postLike.repository.PostLikeRepository;
 import org.example.community.domain.post.repository.PostRepository;
+import org.example.community.domain.user.User;
+import org.example.community.domain.user.repository.UserRepository;
 import org.example.community.global.CursorInfo;
-import org.example.community.global.ImageValidator;
+import org.example.community.domain.image.ImageValidator;
 import org.example.community.global.exception.CustomException;
 import org.example.community.global.exception.ErrorCode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class PostService {
 
     private final PostRepository postRepository;
     private final CommentRepository commentRepository;
-    private final LikeRepository likeRepository;
+    private final PostLikeRepository postLikeRepository;
     private final ImageValidator imageValidator;
+    private final UserRepository userRepository;
+    private final PostStatusRepository postStatusRepository;
+    private final ViewCountBuffer viewCountBuffer;
+    private final FileService fileService;
 
     // 게시글 작성
+    @Transactional
     public void createPost(Long userId, PostRequestDto postRequestDto,
                            MultipartFile postImage) {
-        byte[] image = (!postImage.isEmpty())
-                ? imageValidator.extractBytes(postImage)
+        User user = findUserById(userId);
+
+        String image = (postImage != null && !postImage.isEmpty())
+                ? fileService.uploadFile(postImage)
                 : null;
 
         Post post = Post.builder()
                 .title(postRequestDto.getTitle())
                 .content(postRequestDto.getContent())
                 .postImage(image)
-                .userId(userId)
+                .user(user)
                 .build();
         postRepository.save(post);
+
+        PostStatus postStatus = PostStatus.builder()
+                .post(post)
+                .build();
+        postStatusRepository.save(postStatus);
     }
 
     // 최초 요청: GET /posts?sort=latest&limit=10
@@ -58,7 +79,9 @@ public class PostService {
                     .thenComparing(Comparator.comparing(Post::getId).reversed());
             case "oldest" -> Comparator.comparing(Post::getCreatedAt)
                     .thenComparing(Post::getId);
-            case "popular" -> Comparator.comparing(Post::getLikeCount).reversed()
+            case "popular" -> Comparator.comparingInt(
+                            (Post post) -> findPostStatusByPostId(post.getId()).getLikeCount())
+                    .reversed()
                     .thenComparing(Comparator.comparing(Post::getId).reversed());
             default -> throw new CustomException(ErrorCode.INVALID_SORT);
         };
@@ -78,12 +101,16 @@ public class PostService {
         // 다음 cursor 생성
         String nextCursor = hasNext
                 ? sort.equals("popular")
-                ? CursorInfo.encode(result.get(result.size() - 1).getLikeCount(), result.get(result.size() - 1).getId())
+                ? CursorInfo.encode(
+                findPostStatusByPostId(result.get(result.size() - 1).getId()).getLikeCount(),
+                result.get(result.size() - 1).getId())
                 : CursorInfo.encode(result.get(result.size() - 1).getCreatedAt(), result.get(result.size() - 1).getId())
                 : null;
 
         return PostPageResponse.builder()
-                .posts(result.stream().map(PostListResponse::from).toList())
+                .posts(result.stream()
+                        .map(post -> PostListResponse.of(post, findPostStatusByPostId(post.getId())))
+                        .toList())
                 .nextCursor(nextCursor)
                 .hasNext(hasNext)
                 .build();
@@ -92,24 +119,25 @@ public class PostService {
     // 게시글 상세 조회
     public PostDetailResponse getPost(Long postId) {
         Post post = findPostById(postId);
+        PostStatus postStatus = findPostStatusByPostId(postId);
 
-        post.increaseViewCount();
-        postRepository.save(post);
+        viewCountBuffer.increment(postId);
 
-        return PostDetailResponse.from(post);
+        return PostDetailResponse.of(post, postStatus);
     }
 
     // 게시글 수정
+    @Transactional
     public void updatePost(Long userId, Long postId, PostRequestDto postRequestDto,
                            MultipartFile postImage) {
         Post post = findPostById(postId);
 
-        if (!Objects.equals(post.getUserId(), userId)) {
+        if (!Objects.equals(post.getUser().getId(), userId)) {
             throw new CustomException(ErrorCode.FORBIDDEN);
         }
 
-        byte[] image = (postImage != null && !postImage.isEmpty())
-                ? imageValidator.extractBytes(postImage)
+        String image = (postImage != null && !postImage.isEmpty())
+                ? fileService.uploadFile(postImage)
                 : post.getPostImage();
 
         post.update(postRequestDto.getTitle(), postRequestDto.getContent(), image);
@@ -117,41 +145,64 @@ public class PostService {
     }
 
     // 게시글 삭제
+    @Transactional
     public void deletePost(Long userId, Long postId) {
         Post post = findPostById(postId);
 
-        if (!Objects.equals(post.getUserId(), userId)) {
+        if (!Objects.equals(post.getUser().getId(), userId)) {
             throw new CustomException(ErrorCode.FORBIDDEN);
         }
 
         commentRepository.deleteByPostId(postId);
-        likeRepository.deleteByPostId(postId);
+        postLikeRepository.deleteByPostId(postId);
 
         postRepository.deleteById(postId);
     }
 
+    // 좋아요 등록
+    @Transactional
     public void createLike(Long userId, Long postId) {
         Post post = findPostById(postId);
-        if (likeRepository.exists(userId, postId)) {
+        PostStatus postStatus = findPostStatusByPostId(postId);
+
+        if (postLikeRepository.existsByUserIdAndPostId(userId, postId)) {
             throw new CustomException(ErrorCode.ALREADY_LIKED);
         }
-        likeRepository.save(userId, postId);
-        post.increaseLikeCount();
-        postRepository.save(post);
+
+        postLikeRepository.save(PostLike.builder()
+                .userId(userId)
+                .postId(postId)
+                .build());
+        postStatus.increaseLikeCount();
+        postStatusRepository.save(postStatus);
     }
 
+    // 좋아요 취소
+    @Transactional
     public void deleteLike(Long userId, Long postId) {
         Post post = findPostById(postId);
-        if (!likeRepository.exists(userId, postId)) {
+        PostStatus postStatus = findPostStatusByPostId(postId);
+
+        if (!postLikeRepository.existsByUserIdAndPostId(userId, postId)) {
             throw new CustomException(ErrorCode.NOT_LIKED);
         }
-        likeRepository.delete(userId, postId);
-        post.decreaseLikeCount();
-        postRepository.save(post);
+        postLikeRepository.deleteByUserIdAndPostId(userId, postId);
+        postStatus.decreaseLikeCount();
+        postStatusRepository.save(postStatus);
     }
 
     private Post findPostById(Long postId) {
         return postRepository.findById(postId)
+                .orElseThrow(() -> new CustomException(ErrorCode.NOT_FOUND_POST));
+    }
+
+    private User findUserById(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new CustomException(ErrorCode.NOT_FOUND_USER));
+    }
+
+    private PostStatus findPostStatusByPostId(Long postId) {
+        return postStatusRepository.findPostStatusByPostId(postId)
                 .orElseThrow(() -> new CustomException(ErrorCode.NOT_FOUND_POST));
     }
 
@@ -160,6 +211,8 @@ public class PostService {
         if (cursorInfo == null) {
             return true;
         }
+        PostStatus postStatus = findPostStatusByPostId(post.getId());
+
         return switch (sort) {
             case "latest" -> post.getCreatedAt().isBefore(cursorInfo.getCreatedAt()) ||
                     (post.getCreatedAt().isEqual(cursorInfo.getCreatedAt()) &&
@@ -167,8 +220,8 @@ public class PostService {
             case "oldest" -> post.getCreatedAt().isAfter(cursorInfo.getCreatedAt()) ||
                     (post.getCreatedAt().isEqual(cursorInfo.getCreatedAt()) &&
                             post.getId() > cursorInfo.getId());
-            case "popular" -> post.getLikeCount() < cursorInfo.getLikeCount() ||
-                    (post.getLikeCount() == cursorInfo.getLikeCount() &&
+            case "popular" -> postStatus.getLikeCount() < cursorInfo.getLikeCount() ||
+                    (postStatus.getLikeCount() == cursorInfo.getLikeCount() &&
                             post.getId() < cursorInfo.getId());
             default -> throw new CustomException(ErrorCode.INVALID_SORT);
         };

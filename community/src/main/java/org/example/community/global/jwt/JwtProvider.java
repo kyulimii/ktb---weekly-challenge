@@ -1,8 +1,11 @@
 package org.example.community.global.jwt;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.security.SignatureException;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -14,9 +17,6 @@ import org.example.community.global.config.JwtProperties;
 import org.example.community.global.exception.CustomException;
 import org.example.community.global.exception.ErrorCode;
 import org.springframework.stereotype.Component;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.security.SignatureException;
 
 @Component
 @RequiredArgsConstructor
@@ -75,10 +75,6 @@ public class JwtProvider {
         } catch (Exception e) {
             throw new CustomException(ErrorCode.UNAUTHORIZED);
         }
-    }
-
-    public boolean isAccessToken(String token) {
-        return "access".equals(parseToken(token).get("typ", String.class));
     }
 
     public void validateTokenType(String token, String expectedType) {

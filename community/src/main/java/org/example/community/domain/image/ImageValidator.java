@@ -1,4 +1,4 @@
-package org.example.community.global;
+package org.example.community.domain.image;
 
 import java.io.IOException;
 import java.util.List;

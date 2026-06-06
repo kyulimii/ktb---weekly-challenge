@@ -1,19 +1,16 @@
 package org.example.community.domain.post.comment.repository;
 
 import java.util.List;
-import java.util.Optional;
 import org.example.community.domain.post.comment.Comment;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-public interface CommentRepository {
-    <S extends Comment> S save(S entity);
-
-    Optional<Comment> findById(Long id);
-
+public interface CommentRepository extends JpaRepository<Comment, Long> {
     List<Comment> findByPostId(Long postId);
-
-    void deleteById(Long id);
-
     void deleteByUserId(Long loginUserId);
-
     void deleteByPostId(Long postId);
+
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post.id = :postId")
+    List<Comment> findByPostIdWithUser(@Param("postId") Long postId);
 }
